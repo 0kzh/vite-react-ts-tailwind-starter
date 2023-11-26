@@ -367,159 +367,39 @@ export class ChunkWorker {
     const indices = [];
     const uvs = [];
 
-    // Create a mask to store the block types
-    const mask = new Array(this.size.width * this.size.width).fill(0);
+    for (let x = 0; x < this.size.width; x++) {
+      for (let y = 0; y < this.size.height; y++) {
+        for (let z = 0; z < this.size.width; z++) {
+          const block = this.getBlock(x, y, z)?.block;
 
-    // Iterate over the y dimension
-    for (let y = 0; y < this.size.height; y++) {
-      for (let z = -1; z < this.size.width; ) {
-        // Compute the mask
-        let n = 0;
-        for (let x = 0; x < this.size.width; x++) {
-          for (let z = 0; z < this.size.width; z++) {
-            const a = z >= 0 ? this.getBlock(x, y, z)?.block : BlockID.Air;
-            const b =
-              z < this.size.width - 1
-                ? this.getBlock(x, y, z + 1)?.block
-                : BlockID.Air;
-            if (
-              a != null &&
-              a !== BlockID.Air &&
-              a === b &&
-              !this.isBlockObscured(x, y, z)
-            ) {
-              mask[n++] = a;
-            } else {
-              mask[n++] = 0;
-            }
+          if (block == null || block === BlockID.Air) {
+            continue;
           }
-        }
 
-        // Increment z
-        z++;
+          if (block && !this.isBlockObscured(x, y, z)) {
+            const uvVoxel = block - 1; // voxel 0 is sky so for UVs we start at 0
+            for (const { dir, corners, uvRow } of faces) {
+              const neighbor = this.getBlock(
+                x + dir[0],
+                y + dir[1],
+                z + dir[2]
+              )?.block;
 
-        // Generate mesh for mask using lexicographic ordering
-        n = 0;
-        for (let i = 0; i < this.size.width; i++) {
-          for (let j = 0; j < this.size.width; ) {
-            const w = mask[n];
-            if (w) {
-              // Compute width
-              let dw = 1;
-              while (dw + j < this.size.width && mask[n + dw] === w) {
-                dw++;
-              }
-
-              // Compute height (this is slightly awkward)
-              let dh = 1;
-              maskCheck: for (; i + dh < this.size.width; dh++) {
-                for (let k = 0; k < dw; k++) {
-                  if (mask[n + k + dh * this.size.width] !== w) {
-                    break maskCheck;
-                  }
-                }
-              }
-
-              // Add quad
-              const vertexCount = positions.length / 3;
-              // Top face
-              positions.push(
-                i,
-                y,
-                j,
-                i + dh,
-                y,
-                j,
-                i + dh,
-                y,
-                j + dw,
-                i,
-                y,
-                j + dw
-              );
-              normals.push(0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0);
-              indices.push(
-                vertexCount,
-                vertexCount + 1,
-                vertexCount + 2,
-                vertexCount,
-                vertexCount + 2,
-                vertexCount + 3
-              );
-
-              // Side faces
-              for (let side = 0; side < 4; side++) {
-                const dir = faces[side].dir;
-                const nextX = i + dir[0];
-                const nextY = y + dir[1];
-                const nextZ = j + dir[2];
-                if (
-                  nextX < 0 ||
-                  nextX >= this.size.width ||
-                  nextY < 0 ||
-                  nextY >= this.size.height ||
-                  nextZ < 0 ||
-                  nextZ >= this.size.width ||
-                  !mask[
-                    n +
-                      nextX +
-                      nextY * this.size.width +
-                      nextZ * this.size.width * this.size.height
-                  ]
-                ) {
-                  const vertexCount = positions.length / 3;
-                  positions.push(
-                    i + faces[side].corners[0].pos[0],
-                    y + faces[side].corners[0].pos[1],
-                    j + faces[side].corners[0].pos[2],
-                    i + faces[side].corners[1].pos[0],
-                    y + faces[side].corners[1].pos[1],
-                    j + faces[side].corners[1].pos[2],
-                    i + faces[side].corners[2].pos[0],
-                    y + faces[side].corners[2].pos[1],
-                    j + faces[side].corners[2].pos[2],
-                    i + faces[side].corners[3].pos[0],
-                    y + faces[side].corners[3].pos[1],
-                    j + faces[side].corners[3].pos[2]
-                  );
-                  normals.push(
-                    faces[side].dir[0],
-                    faces[side].dir[1],
-                    faces[side].dir[2],
-                    faces[side].dir[0],
-                    faces[side].dir[1],
-                    faces[side].dir[2],
-                    faces[side].dir[0],
-                    faces[side].dir[1],
-                    faces[side].dir[2],
-                    faces[side].dir[0],
-                    faces[side].dir[1],
-                    faces[side].dir[2]
-                  );
-                  indices.push(
-                    vertexCount,
-                    vertexCount + 1,
-                    vertexCount + 2,
-                    vertexCount,
-                    vertexCount + 2,
-                    vertexCount + 3
+              if (neighbor == null || neighbor === BlockID.Air) {
+                const ndx = positions.length / 3;
+                for (const { pos, uv } of corners) {
+                  positions.push(pos[0] + x, pos[1] + y, pos[2] + z);
+                  normals.push(...dir);
+                  uvs.push(
+                    ((uvVoxel + uv[0]) * this.params.textures.tileSize) /
+                      this.params.textures.tileTextureWidth,
+                    1 -
+                      ((uvRow + 1 - uv[1]) * this.params.textures.tileSize) /
+                        this.params.textures.tileTextureHeight
                   );
                 }
+                indices.push(ndx, ndx + 1, ndx + 2, ndx + 2, ndx + 1, ndx + 3);
               }
-
-              // Zero-out mask
-              for (let l = 0; l < dh; l++) {
-                for (let k = 0; k < dw; k++) {
-                  mask[n + k + l * this.size.width] = 0;
-                }
-              }
-
-              // Increment counters and continue
-              j += dw;
-              n += dw;
-            } else {
-              j++;
-              n++;
             }
           }
         }
