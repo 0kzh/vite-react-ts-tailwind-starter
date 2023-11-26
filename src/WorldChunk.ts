@@ -1,25 +1,37 @@
 import { wrap } from "comlink";
+import * as Comlink from "comlink";
 import * as THREE from "three";
 
 import { BlockID } from "./Block";
 import { BlockFactory } from "./Block/BlockFactory";
-
-// export const workerInstance = new ComlinkWorker<typeof import("./chunkWorker")>(
-//   new URL("./chunkWorker", import.meta.url)
-// );
-
-import chunkWorker from "./chunkWorker?worker&url";
+import ChunkWorker, { InstanceData, BufferData } from "./chunkWorker";
+// import chunkWorker from "./chunkWorker?worker&url";
 import { DataStore } from "./DataStore";
+
+const loader = new THREE.TextureLoader();
+const texture = loader.load("/textures/block_atlas.png");
+texture.magFilter = THREE.NearestFilter;
+texture.minFilter = THREE.NearestFilter;
+texture.colorSpace = THREE.SRGBColorSpace;
+
+const material = new THREE.MeshLambertMaterial({
+  map: texture,
+  side: THREE.DoubleSide,
+  alphaTest: 0.1,
+  transparent: true,
+});
+
+const wireframeMaterial = new THREE.LineBasicMaterial({ color: 0x000000 });
 
 const geometry = new THREE.BoxGeometry();
 
-export type InstanceData = {
-  block: BlockID;
-  instanceId: number | null; // reference to mesh instanceId
-};
-
 export type WorldParams = {
   seed: number;
+  textures: {
+    tileSize: number;
+    tileTextureWidth: number;
+    tileTextureHeight: number;
+  };
   terrain: {
     scale: number;
     magnitude: number;
@@ -59,6 +71,7 @@ export class WorldChunk extends THREE.Group {
   size: WorldSize;
   loaded: boolean;
   dataStore: DataStore;
+  static chunkWorker: ChunkWorker;
 
   constructor(size: WorldSize, params: WorldParams, dataStore: DataStore) {
     super();
@@ -66,28 +79,63 @@ export class WorldChunk extends THREE.Group {
     this.params = params;
     this.dataStore = dataStore;
     this.loaded = false;
+    this.initWorker();
   }
 
-  generate() {
+  async initWorker() {
+    if (WorldChunk.chunkWorker == null) {
+      WorldChunk.chunkWorker = await new WorldChunkWorker(
+        this.size,
+        this.params,
+        this.dataStore
+      );
+    }
+  }
+
+  async generate() {
     const start = performance.now();
 
-    // workerInstance
-    //   .generateChunk(this.size, this.params, this.x, this.z)
-    //   .then((data: BlockID[][][]) => {
-    //     console.log(`Loaded chunk in ${performance.now() - start}ms`);
-    //   });
-    workerInstance
-      .generateChunk(this.size, this.params, this.position.x, this.position.z)
-      .then((data: BlockID[][][]) => {
-        requestIdleCallback(() => {
-          this.initializeTerrain(data);
-          this.loadPlayerChanges();
-          this.generateMeshes(data);
-          this.loaded = true;
+    await this.initWorker();
 
-          console.log(`Loaded chunk in ${performance.now() - start}ms`);
+    if (WorldChunk.chunkWorker) {
+      WorldChunk.chunkWorker
+        .generateChunk(this.position.x, this.position.z)
+        .then((chunk: BufferData) => {
+          requestIdleCallback(() => {
+            this.data = chunk.data;
+
+            const geometry = new THREE.BufferGeometry();
+            // data passed is incomplete, re-initialize
+            const positions = new THREE.BufferAttribute(
+              new Float32Array(chunk.positions),
+              3
+            );
+            const normals = new THREE.BufferAttribute(
+              new Float32Array(chunk.normals),
+              3
+            );
+            const uvs = new THREE.BufferAttribute(
+              new Float32Array(chunk.uvs),
+              2
+            );
+            geometry.setAttribute("position", positions);
+            geometry.setAttribute("normal", normals);
+            geometry.setAttribute("uv", uvs);
+            geometry.setIndex(chunk.indices);
+            const mesh = new THREE.Mesh(geometry, material);
+            const wireframe = new THREE.WireframeGeometry(geometry);
+            const line = new THREE.LineSegments(wireframe, wireframeMaterial);
+            mesh.add(line);
+
+            this.add(mesh);
+            this.loaded = true;
+
+            console.log(`Loaded chunk in ${performance.now() - start}ms`);
+          });
         });
-      });
+    } else {
+      console.log("Chunk worker not initialized");
+    }
   }
 
   /**
@@ -391,6 +439,10 @@ export class WorldChunk extends THREE.Group {
   }
 }
 
-export const workerInstance = new ComlinkWorker<typeof import("./chunkWorker")>(
-  new URL("./chunkWorker", import.meta.url)
+// const WorldChunkWorker: any = new ComlinkWorker<typeof import("./chunkWorker")>(
+//   new URL("./chunkWorker", import.meta.url)
+// );
+
+const WorldChunkWorker: any = Comlink.wrap<typeof import("./chunkWorker")>(
+  new Worker(new URL("./chunkWorker", import.meta.url), { type: "module" })
 );

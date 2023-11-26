@@ -8,6 +8,7 @@ import { WorldChunk, WorldParams, WorldSize } from "./WorldChunk";
 export class World extends THREE.Group {
   seed: number;
   renderDistance = 10;
+  // renderDistance = 6;
   asyncLoading = true;
   chunkSize: WorldSize = {
     width: 16,
@@ -16,6 +17,11 @@ export class World extends THREE.Group {
 
   params: WorldParams = {
     seed: 0,
+    textures: {
+      tileSize: 16,
+      tileTextureWidth: 160,
+      tileTextureHeight: 64,
+    },
     terrain: {
       scale: 50,
       magnitude: 0.1,
@@ -103,6 +109,8 @@ export class World extends THREE.Group {
         visibleChunks.push({ x: coords.chunk.x + dx, z: coords.chunk.z + dz });
       }
     }
+
+    // visibleChunks.push({ x: coords.chunk.x, z: coords.chunk.z });
 
     return visibleChunks;
   }

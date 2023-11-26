@@ -292,7 +292,6 @@ export class Player {
         break;
       case "KeyW":
         if (!this.wKeyPressed && performance.now() - this.lastWPressed < 150) {
-          console.log("sprint!");
           this.isSprinting = true;
           this.input.z = this.maxSprintSpeed;
         } else {
