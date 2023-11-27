@@ -4,6 +4,7 @@ import * as THREE from "three";
 
 import { BlockID } from "./Block";
 import { BlockFactory } from "./Block/BlockFactory";
+import { ChunkQueue } from "./ChunkQueue";
 import ChunkWorker, { InstanceData, BufferData } from "./chunkWorker";
 // import chunkWorker from "./chunkWorker?worker&url";
 import { DataStore } from "./DataStore";
@@ -71,14 +72,21 @@ export class WorldChunk extends THREE.Group {
   size: WorldSize;
   loaded: boolean;
   dataStore: DataStore;
+  chunkQueue: ChunkQueue;
   static chunkWorker: ChunkWorker;
 
-  constructor(size: WorldSize, params: WorldParams, dataStore: DataStore) {
+  constructor(
+    size: WorldSize,
+    params: WorldParams,
+    dataStore: DataStore,
+    chunkQueue: ChunkQueue
+  ) {
     super();
     this.size = size;
     this.params = params;
     this.dataStore = dataStore;
     this.loaded = false;
+    this.chunkQueue = chunkQueue;
     this.initWorker();
   }
 
@@ -93,7 +101,7 @@ export class WorldChunk extends THREE.Group {
   }
 
   async generate() {
-    const start = performance.now();
+    // const start = performance.now();
 
     await this.initWorker();
 
@@ -101,37 +109,42 @@ export class WorldChunk extends THREE.Group {
       WorldChunk.chunkWorker
         .generateChunk(this.position.x, this.position.z)
         .then((chunk: BufferData) => {
-          requestIdleCallback(() => {
-            this.data = chunk.data;
+          this.chunkQueue.enqueue(
+            { x: this.position.x, z: this.position.z },
+            () => {
+              requestIdleCallback(() => {
+                this.data = chunk.data;
 
-            const geometry = new THREE.BufferGeometry();
-            // data passed is incomplete, re-initialize
-            const positions = new THREE.BufferAttribute(
-              new Float32Array(chunk.positions),
-              3
-            );
-            const normals = new THREE.BufferAttribute(
-              new Float32Array(chunk.normals),
-              3
-            );
-            const uvs = new THREE.BufferAttribute(
-              new Float32Array(chunk.uvs),
-              2
-            );
-            geometry.setAttribute("position", positions);
-            geometry.setAttribute("normal", normals);
-            geometry.setAttribute("uv", uvs);
-            geometry.setIndex(chunk.indices);
-            const mesh = new THREE.Mesh(geometry, material);
-            const wireframe = new THREE.WireframeGeometry(geometry);
-            const line = new THREE.LineSegments(wireframe, wireframeMaterial);
-            mesh.add(line);
+                const geometry = new THREE.BufferGeometry();
+                // data passed is incomplete, re-initialize
+                const positions = new THREE.BufferAttribute(
+                  new Float32Array(chunk.positions),
+                  3
+                );
+                const normals = new THREE.BufferAttribute(
+                  new Float32Array(chunk.normals),
+                  3
+                );
+                const uvs = new THREE.BufferAttribute(
+                  new Float32Array(chunk.uvs),
+                  2
+                );
+                geometry.setAttribute("position", positions);
+                geometry.setAttribute("normal", normals);
+                geometry.setAttribute("uv", uvs);
+                geometry.setIndex(chunk.indices);
+                const mesh = new THREE.Mesh(geometry, material);
+                // const wireframe = new THREE.WireframeGeometry(geometry);
+                // const line = new THREE.LineSegments(wireframe, wireframeMaterial);
+                // mesh.add(line);
 
-            this.add(mesh);
-            this.loaded = true;
+                this.add(mesh);
+                this.loaded = true;
 
-            console.log(`Loaded chunk in ${performance.now() - start}ms`);
-          });
+                console.log(`Loaded chunk`);
+              });
+            }
+          );
         });
     } else {
       console.log("Chunk worker not initialized");

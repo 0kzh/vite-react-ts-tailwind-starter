@@ -1,6 +1,7 @@
 import * as THREE from "three";
 
 import { BlockID } from "./Block";
+import { ChunkQueue } from "./ChunkQueue";
 import { DataStore } from "./DataStore";
 import { Player } from "./Player";
 import { WorldChunk, WorldParams, WorldSize } from "./WorldChunk";
@@ -9,6 +10,10 @@ export class World extends THREE.Group {
   seed: number;
   renderDistance = 10;
   // renderDistance = 6;
+  chunkLoadQueue: ChunkQueue;
+  minChunkLoadTimeout = 200;
+  lastChunkLoadTime = 0;
+
   asyncLoading = true;
   chunkSize: WorldSize = {
     width: 16,
@@ -56,6 +61,7 @@ export class World extends THREE.Group {
   constructor(seed = 0) {
     super();
     this.seed = seed;
+    this.chunkLoadQueue = new ChunkQueue();
   }
 
   /**
@@ -80,8 +86,22 @@ export class World extends THREE.Group {
     if (chunksToAdd.length > 0) {
       console.log("Chunks to add", chunksToAdd);
     }
+
     for (const chunk of chunksToAdd) {
       this.generateChunk(chunk.x, chunk.z);
+    }
+
+    // Load chunks from the queue
+    if (
+      !this.chunkLoadQueue.isEmpty &&
+      (!player.controls.isLocked ||
+        performance.now() - this.lastChunkLoadTime > this.minChunkLoadTimeout)
+    ) {
+      const chunk = this.chunkLoadQueue.dequeue();
+      if (chunk?.cb) {
+        chunk?.cb();
+      }
+      this.lastChunkLoadTime = performance.now();
     }
   }
 
@@ -147,10 +167,17 @@ export class World extends THREE.Group {
     });
 
     chunksToRemove.forEach((chunk) => {
-      (chunk as WorldChunk).disposeChildren();
-      this.remove(chunk);
-      console.log(
-        `Removed chunk at X: ${chunk.userData.x} Z: ${chunk.userData.z}`
+      this.chunkLoadQueue.enqueue(
+        { x: chunk.userData.x, z: chunk.userData.z },
+        () => {
+          requestIdleCallback(() => {
+            (chunk as WorldChunk).disposeChildren();
+            this.remove(chunk);
+            console.log(
+              `Removed chunk at X: ${chunk.userData.x} Z: ${chunk.userData.z}`
+            );
+          });
+        }
       );
     });
   }
@@ -159,13 +186,24 @@ export class World extends THREE.Group {
    * Generates the chunk at (x, z) coordinates
    */
   async generateChunk(x: number, z: number) {
-    const chunk = new WorldChunk(this.chunkSize, this.params, this.dataStore);
+    const chunk = new WorldChunk(
+      this.chunkSize,
+      this.params,
+      this.dataStore,
+      this.chunkLoadQueue
+    );
     chunk.position.set(x * this.chunkSize.width, 0, z * this.chunkSize.width);
     chunk.userData = { x, z };
 
     chunk.generate();
 
     this.add(chunk);
+
+    return chunk;
+  }
+
+  getChunkKey(x: number, z: number) {
+    return `${x},${z}`;
   }
 
   /**

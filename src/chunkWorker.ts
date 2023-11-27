@@ -121,7 +121,7 @@ export class ChunkWorker {
     this.generateTerrain(chunkPos);
     this.generateTrees(chunkPos);
     // this.loadPlayerChanges(chunkPos);
-    const chunk: BufferData = this.generateMeshes(chunkPos);
+    const chunk: BufferData = this.generateMeshes();
 
     return chunk;
   }
