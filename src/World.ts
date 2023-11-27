@@ -11,8 +11,10 @@ export class World extends THREE.Group {
   renderDistance = 10;
   // renderDistance = 6;
   chunkLoadQueue: ChunkQueue;
-  minChunkLoadTimeout = 200;
+  minChunkLoadTimeout = 50;
   lastChunkLoadTime = 0;
+
+  chunks = new Map<string, WorldChunk>();
 
   asyncLoading = true;
   chunkSize: WorldSize = {
@@ -79,6 +81,7 @@ export class World extends THREE.Group {
    * Updates the visible portions of the world based on the current player position
    */
   update(player: Player) {
+    const updateStartPerformance = performance.now();
     const visibleChunks = this.getVisibleChunks(player);
     const chunksToAdd = this.getChunksToAdd(visibleChunks);
     this.removeUnusedChunks(visibleChunks);
@@ -87,11 +90,23 @@ export class World extends THREE.Group {
       console.log("Chunks to add", chunksToAdd);
     }
 
+    const startPerformance = performance.now();
     for (const chunk of chunksToAdd) {
-      this.generateChunk(chunk.x, chunk.z);
+      this.chunkLoadQueue.enqueue({ x: chunk.x, z: chunk.z }, () => {
+        this.generateChunk(chunk.x, chunk.z);
+      });
+    }
+    const endPerformance = performance.now();
+    if (chunksToAdd.length > 0) {
+      console.log(
+        `Performance time for generating chunks: ${
+          endPerformance - startPerformance
+        } milliseconds.`
+      );
     }
 
     // Load chunks from the queue
+    const startChunkLoadPerformance = performance.now();
     if (
       !this.chunkLoadQueue.isEmpty &&
       (!player.controls.isLocked ||
@@ -102,6 +117,23 @@ export class World extends THREE.Group {
         chunk?.cb();
       }
       this.lastChunkLoadTime = performance.now();
+    }
+    const endChunkLoadPerformance = performance.now();
+    if (chunksToAdd.length > 0) {
+      console.log(
+        `Performance time for loading chunks: ${
+          endChunkLoadPerformance - startChunkLoadPerformance
+        } milliseconds.`
+      );
+    }
+
+    const updateEndPerformance = performance.now();
+    if (chunksToAdd.length > 0) {
+      console.log(
+        `Performance time for update: ${
+          updateEndPerformance - updateStartPerformance
+        } milliseconds.`
+      );
     }
   }
 
@@ -118,19 +150,19 @@ export class World extends THREE.Group {
     );
 
     const visibleChunks = [];
-    const range = Array.from(
-      { length: this.renderDistance * 2 + 1 },
-      (_, i) => i - this.renderDistance
-    );
-    range.sort((a, b) => Math.abs(a) - Math.abs(b));
+    // const range = Array.from(
+    //   { length: this.renderDistance * 2 + 1 },
+    //   (_, i) => i - this.renderDistance
+    // );
+    // range.sort((a, b) => Math.abs(a) - Math.abs(b));
 
-    for (const dx of range) {
-      for (const dz of range) {
-        visibleChunks.push({ x: coords.chunk.x + dx, z: coords.chunk.z + dz });
-      }
-    }
+    // for (const dx of range) {
+    //   for (const dz of range) {
+    //     visibleChunks.push({ x: coords.chunk.x + dx, z: coords.chunk.z + dz });
+    //   }
+    // }
 
-    // visibleChunks.push({ x: coords.chunk.x, z: coords.chunk.z });
+    visibleChunks.push({ x: coords.chunk.x, z: coords.chunk.z });
 
     return visibleChunks;
   }
@@ -186,6 +218,7 @@ export class World extends THREE.Group {
    * Generates the chunk at (x, z) coordinates
    */
   async generateChunk(x: number, z: number) {
+    const startPerformance = performance.now();
     const chunk = new WorldChunk(
       this.chunkSize,
       this.params,
@@ -198,8 +231,12 @@ export class World extends THREE.Group {
     chunk.generate();
 
     this.add(chunk);
-
-    return chunk;
+    const endPerformance = performance.now();
+    console.log(
+      `Performance time for generating chunk: ${
+        endPerformance - startPerformance
+      }ms`
+    );
   }
 
   getChunkKey(x: number, z: number) {
@@ -304,6 +341,44 @@ export class World extends THREE.Group {
   }
 
   /**
+   * Global version of isBlockObscured that checks between chunk borders
+   */
+  isBlockObscured(x: number, y: number, z: number) {
+    const up = this.getBlock(x, y + 1, z);
+    const down = this.getBlock(x, y - 1, z);
+    const left = this.getBlock(x - 1, y, z);
+    const right = this.getBlock(x + 1, y, z);
+    const front = this.getBlock(x, y, z + 1);
+    const back = this.getBlock(x, y, z - 1);
+
+    // If any of the block's sides are exposed, it's not obscured
+    if (
+      !up ||
+      !down ||
+      !left ||
+      !right ||
+      !front ||
+      !back ||
+      up?.block === BlockID.Air ||
+      down?.block === BlockID.Air ||
+      left?.block === BlockID.Air ||
+      right?.block === BlockID.Air ||
+      front?.block === BlockID.Air ||
+      back?.block === BlockID.Air ||
+      up?.block === BlockID.Leaves ||
+      down?.block === BlockID.Leaves ||
+      left?.block === BlockID.Leaves ||
+      right?.block === BlockID.Leaves ||
+      front?.block === BlockID.Leaves ||
+      back?.block === BlockID.Leaves
+    ) {
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
    * Hides block at (x, y, z) by removing mesh instance
    */
   hideBlockIfNeeded(x: number, y: number, z: number) {
@@ -311,12 +386,28 @@ export class World extends THREE.Group {
     const coords = this.worldToChunkCoords(x, y, z);
     const chunk = this.getChunk(coords.chunk.x, coords.chunk.z);
 
-    if (
-      chunk &&
-      chunk.loaded &&
-      chunk.isBlockObscured(coords.block.x, coords.block.y, coords.block.z)
-    ) {
-      chunk.deleteBlockInstance(coords.block.x, coords.block.y, coords.block.z);
+    if (chunk && chunk.loaded) {
+      if (
+        this.isBlockObscured(coords.block.x, coords.block.y, coords.block.z)
+      ) {
+        chunk.deleteBlockInstance(
+          coords.block.x,
+          coords.block.y,
+          coords.block.z
+        );
+      }
     }
+  }
+
+  /**
+   * Returns an array of the coordinates of the chunks adjacent to (x, z)
+   */
+  getAdjacentChunks(x: number, z: number) {
+    return [
+      { x: x - 1, z },
+      { x: x + 1, z },
+      { x, z: z - 1 },
+      { x, z: z + 1 },
+    ];
   }
 }

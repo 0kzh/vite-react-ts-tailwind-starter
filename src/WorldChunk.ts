@@ -134,11 +134,14 @@ export class WorldChunk extends THREE.Group {
                 geometry.setAttribute("uv", uvs);
                 geometry.setIndex(chunk.indices);
                 const mesh = new THREE.Mesh(geometry, material);
-                // const wireframe = new THREE.WireframeGeometry(geometry);
-                // const line = new THREE.LineSegments(wireframe, wireframeMaterial);
+                const wireframe = new THREE.WireframeGeometry(geometry);
+                const line = new THREE.LineSegments(
+                  wireframe,
+                  wireframeMaterial
+                );
                 // mesh.add(line);
 
-                this.add(mesh);
+                this.add(line);
                 this.loaded = true;
 
                 console.log(`Loaded chunk`);
@@ -148,27 +151,6 @@ export class WorldChunk extends THREE.Group {
         });
     } else {
       console.log("Chunk worker not initialized");
-    }
-  }
-
-  /**
-   * Initializes the terrain data
-   */
-  initializeTerrain(data: BlockID[][][]) {
-    this.data = [];
-    for (let x = 0; x < this.size.width; x++) {
-      const slice = [];
-      for (let y = 0; y < this.size.height; y++) {
-        const row: InstanceData[] = [];
-        for (let z = 0; z < this.size.width; z++) {
-          row.push({
-            block: data[x][y][z],
-            instanceId: null,
-          });
-        }
-        slice.push(row);
-      }
-      this.data.push(slice);
     }
   }
 
@@ -198,64 +180,6 @@ export class WorldChunk extends THREE.Group {
     }
   }
 
-  generateMeshes(data: BlockID[][][]) {
-    this.clear();
-
-    const maxCount = this.size.width * this.size.width * this.size.height;
-
-    // Create lookup table where key is block id
-    const meshes: Partial<Record<BlockID, THREE.InstancedMesh>> = {};
-    const blockIDValues = Object.values(BlockID).filter(
-      (value) => typeof value === "number"
-    ) as BlockID[];
-
-    for (const blockId of blockIDValues) {
-      const block = BlockFactory.getBlock(blockId);
-      const mesh = new THREE.InstancedMesh(geometry, block.material, maxCount);
-      mesh.name = block.constructor.name;
-      mesh.count = 0;
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      mesh.matrixAutoUpdate = false;
-      meshes[block.id] = mesh;
-    }
-
-    const matrix = new THREE.Matrix4();
-    for (let x = 0; x < this.size.width; x++) {
-      for (let y = 0; y < this.size.height; y++) {
-        for (let z = 0; z < this.size.width; z++) {
-          const block = data[x][y][z];
-
-          if (block === BlockID.Air) {
-            continue;
-          }
-
-          const mesh = meshes[block];
-
-          if (!mesh) {
-            continue;
-          }
-
-          const instanceId = mesh.count;
-
-          if (block && !this.isBlockObscured(x, y, z)) {
-            matrix.setPosition(x + 0.5, y + 0.5, z + 0.5); // lower left corner
-            mesh.setMatrixAt(instanceId, matrix);
-            this.setBlockInstanceId(x, y, z, instanceId);
-            mesh.count++;
-          }
-        }
-      }
-    }
-
-    // Add meshes to group
-    for (const mesh of Object.values(meshes)) {
-      if (mesh) {
-        this.add(mesh);
-      }
-    }
-  }
-
   setBlockId(x: number, y: number, z: number, blockId: BlockID) {
     if (this.inBounds(x, y, z)) {
       this.data[x][y][z].block = blockId;
@@ -271,6 +195,18 @@ export class WorldChunk extends THREE.Group {
     } else {
       return null;
     }
+  }
+
+  /**
+   * Gets if the chunk is on border
+   */
+  isOnBorder(x: number, z: number): boolean {
+    return (
+      x === 0 ||
+      x === this.size.width - 1 ||
+      z === 0 ||
+      z === this.size.width - 1
+    );
   }
 
   /**
