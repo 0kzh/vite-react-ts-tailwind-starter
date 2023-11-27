@@ -99,28 +99,34 @@ export type BufferData = {
   indices: number[];
   uvs: number[];
 };
+
+type ChangeRecord = { x: number; y: number; z: number; blockId: BlockID };
+
 export class ChunkWorker {
   data: InstanceData[][][] = [];
   size: WorldSize;
   params: WorldParams;
   rng: RNG;
-  dataStore: DataStore;
 
-  constructor(size: WorldSize, params: WorldParams, dataStore: DataStore) {
+  constructor(size: WorldSize, params: WorldParams) {
     this.size = size;
     this.params = params;
     this.rng = new RNG(params.seed);
-    this.dataStore = dataStore;
   }
 
-  async generateChunk(x: number, z: number): Promise<BufferData> {
+  async generateChunk(
+    x: number,
+    z: number,
+    changes: ChangeRecord[]
+  ): Promise<BufferData> {
+    console.log("changes", changes);
     const chunkPos = new THREE.Vector3(x, 0, z);
     this.initEmptyChunk();
 
     this.generateResources(chunkPos);
     this.generateTerrain(chunkPos);
     this.generateTrees(chunkPos);
-    // this.loadPlayerChanges(chunkPos);
+    this.loadPlayerChanges(chunkPos, changes);
     const chunk: BufferData = this.generateMeshes();
 
     return chunk;
@@ -347,16 +353,11 @@ export class ChunkWorker {
   /**
    * Loads player changes from the data store
    */
-  loadPlayerChanges(chunkPos: THREE.Vector3) {
-    for (let x = 0; x < this.size.width; x++) {
-      for (let y = 0; y < this.size.height; y++) {
-        for (let z = 0; z < this.size.width; z++) {
-          // Overwrite with value in data store if it exists
-          if (this.dataStore.contains(chunkPos.x, chunkPos.z, x, y, z)) {
-            const blockId = this.dataStore.get(chunkPos.x, chunkPos.z, x, y, z);
-            this.setBlockId(x, y, z, blockId);
-          }
-        }
+  loadPlayerChanges(chunkPos: THREE.Vector3, changes: ChangeRecord[]) {
+    for (const { x, y, z, blockId } of changes) {
+      // Overwrite with value in data store if it exists
+      if (this.inBounds(x, y, z)) {
+        this.setBlockId(x, y, z, blockId);
       }
     }
   }
@@ -479,20 +480,6 @@ export class ChunkWorker {
     }
 
     return true;
-  }
-
-  /**
-   * Sets the block instance data at (x, y, z) for this chunk
-   */
-  setBlockInstanceId(
-    x: number,
-    y: number,
-    z: number,
-    instanceId: number | null
-  ) {
-    if (this.inBounds(x, y, z)) {
-      this.data[x][y][z].instanceId = instanceId;
-    }
   }
 }
 

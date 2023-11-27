@@ -8,7 +8,7 @@ import { WorldChunk, WorldParams, WorldSize } from "./WorldChunk";
 
 export class World extends THREE.Group {
   seed: number;
-  renderDistance = 10;
+  renderDistance = 1;
   // renderDistance = 6;
   chunkLoadQueue: ChunkQueue;
   minChunkLoadTimeout = 50;
@@ -150,19 +150,19 @@ export class World extends THREE.Group {
     );
 
     const visibleChunks = [];
-    // const range = Array.from(
-    //   { length: this.renderDistance * 2 + 1 },
-    //   (_, i) => i - this.renderDistance
-    // );
-    // range.sort((a, b) => Math.abs(a) - Math.abs(b));
+    const range = Array.from(
+      { length: this.renderDistance * 2 + 1 },
+      (_, i) => i - this.renderDistance
+    );
+    range.sort((a, b) => Math.abs(a) - Math.abs(b));
 
-    // for (const dx of range) {
-    //   for (const dz of range) {
-    //     visibleChunks.push({ x: coords.chunk.x + dx, z: coords.chunk.z + dz });
-    //   }
-    // }
+    for (const dx of range) {
+      for (const dz of range) {
+        visibleChunks.push({ x: coords.chunk.x + dx, z: coords.chunk.z + dz });
+      }
+    }
 
-    visibleChunks.push({ x: coords.chunk.x, z: coords.chunk.z });
+    // visibleChunks.push({ x: coords.chunk.x, z: coords.chunk.z });
 
     return visibleChunks;
   }

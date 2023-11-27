@@ -57,4 +57,20 @@ export class DataStore {
   ) {
     return `${chunkX},${chunkZ},${blockX},${blockY},${blockZ}`;
   }
+
+  // TODO: better sorting
+  serializeChanges(chunkX: number, chunkZ: number) {
+    const chunkKey = `${chunkX},${chunkZ}`;
+    const changes = [];
+
+    for (const key in this.data) {
+      if (key.startsWith(chunkKey)) {
+        const strippedKey = key.replace(chunkKey + ",", "");
+        const [x, y, z] = strippedKey.split(",").map(Number);
+        changes.push({ x, y, z, blockId: this.data[key] });
+      }
+    }
+
+    return changes;
+  }
 }
